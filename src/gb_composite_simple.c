@@ -47,25 +47,24 @@ static uint pwm_slice;
 
 // Grayscale lookup: GB pixel (0-3) -> PWM level
 // GB: 0=lightest, 3=darkest
+// Evenly spaced from pure black to pure white for better contrast
 static const uint8_t gray_lut[4] = {
     63,  // 0 = white (lightest)
-    48,  // 1 = light gray
-    32,  // 2 = dark gray  
-    17   // 3 = black (darkest)
+    42,  // 1 = light gray (evenly spaced)
+    21,  // 2 = dark gray (evenly spaced)
+    0    // 3 = black (darkest)
 };
 
-// 8x8 font for "CRTendo" - each byte is a row, MSB first
-// Simple blocky font
-static const uint8_t font_C[] = {0x7E,0xC0,0xC0,0xC0,0xC0,0xC0,0x7E,0x00};
+// 8x8 font for sync stabilization frame (not displayed)
+// Simple blocky font - kept for reference but not used
+static const uint8_t font_B[] = {0xFC,0xC6,0xC6,0xFC,0xC6,0xC6,0xFC,0x00};
+static const uint8_t font_U[] = {0xC6,0xC6,0xC6,0xC6,0xC6,0xC6,0x7C,0x00};
+static const uint8_t font_F[] = {0xFE,0xC0,0xC0,0xFC,0xC0,0xC0,0xC0,0x00};
+static const uint8_t font_E[] = {0xFE,0xC0,0xC0,0xFC,0xC0,0xC0,0xFE,0x00};
 static const uint8_t font_R[] = {0xFC,0xC6,0xC6,0xFC,0xD8,0xCC,0xC6,0x00};
-static const uint8_t font_T[] = {0xFE,0x10,0x10,0x10,0x10,0x10,0x10,0x00};
-static const uint8_t font_e[] = {0x00,0x00,0x7C,0xC6,0xFE,0xC0,0x7C,0x00};
-static const uint8_t font_n[] = {0x00,0x00,0xFC,0xC6,0xC6,0xC6,0xC6,0x00};
-static const uint8_t font_d[] = {0x06,0x06,0x7E,0xC6,0xC6,0xC6,0x7E,0x00};
-static const uint8_t font_o[] = {0x00,0x00,0x7C,0xC6,0xC6,0xC6,0x7C,0x00};
 
-static const uint8_t* logo_chars[] = {font_C, font_R, font_T, font_e, font_n, font_d, font_o};
-#define LOGO_LEN 7
+static const uint8_t* logo_chars[] = {font_B, font_U, font_F, font_F, font_E, font_R};
+#define LOGO_LEN 6
 #define CHAR_W 8
 #define CHAR_H 8
 #define LOGO_SCALE 2  // 2x scale = 16x16 per char
@@ -85,7 +84,7 @@ static void draw_logo(uint8_t (*buf)[GB_WIDTH], int logo_y) {
         }
     }
     
-    // Draw border (like GB boot)
+    // Draw border (like GB boot) - for sync stabilization only
     for (int x = 0; x < GB_WIDTH; x++) {
         buf[0][x] = 3;  // Top border
         buf[GB_HEIGHT-1][x] = 3;  // Bottom border
@@ -95,46 +94,7 @@ static void draw_logo(uint8_t (*buf)[GB_WIDTH], int logo_y) {
         buf[y][GB_WIDTH-1] = 3;  // Right border
     }
     
-    // Center the logo horizontally
-    int logo_x = (GB_WIDTH - LOGO_W) / 2;
-    
-    // Don't draw if off screen
-    if (logo_y < -LOGO_H || logo_y >= GB_HEIGHT) return;
-    
-    // Draw each character
-    for (int c = 0; c < LOGO_LEN; c++) {
-        const uint8_t* glyph = logo_chars[c];
-        int char_x = logo_x + c * CHAR_W * LOGO_SCALE;
-        
-        for (int row = 0; row < CHAR_H; row++) {
-            uint8_t rowdata = glyph[row];
-            for (int col = 0; col < CHAR_W; col++) {
-                bool pixel = (rowdata >> (7 - col)) & 1;
-                if (pixel) {
-                    // Draw scaled pixel (2x2)
-                    for (int sy = 0; sy < LOGO_SCALE; sy++) {
-                        for (int sx = 0; sx < LOGO_SCALE; sx++) {
-                            int px = char_x + col * LOGO_SCALE + sx;
-                            int py = logo_y + row * LOGO_SCALE + sy;
-                            if (py >= 0 && py < GB_HEIGHT && px >= 0 && px < GB_WIDTH) {
-                                buf[py][px] = 3;  // Black pixel
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Draw registered trademark style circle after logo
-    int tm_x = logo_x + LOGO_W + 4;
-    int tm_y = logo_y;
-    if (tm_y >= 0 && tm_y + 6 < GB_HEIGHT && tm_x + 6 < GB_WIDTH) {
-        buf[tm_y][tm_x+1] = 3; buf[tm_y][tm_x+2] = 3;
-        buf[tm_y+1][tm_x] = 3; buf[tm_y+1][tm_x+3] = 3;
-        buf[tm_y+2][tm_x] = 3; buf[tm_y+2][tm_x+3] = 3;
-        buf[tm_y+3][tm_x+1] = 3; buf[tm_y+3][tm_x+2] = 3;
-    }
+    // Text drawing removed - just border for sync stabilization
 }
 
 // NOP delay for timing adjustment after clock edge
@@ -150,12 +110,12 @@ static inline void pixel_delay(void) {
  * Continuously capture frames as they come, using double buffering
  */
 void capture_gb_video(void) {
-    // Wait for boot animation to complete
+    // Wait for minimal boot sync stabilization
     while (!boot_complete) {
         tight_loop_contents();
     }
 
-    printf("Boot complete, starting continuous capture...\n");
+    printf("Starting continuous capture...\n");
 
     while (true) {
         // Wait for VSYNC falling edge (active low)
@@ -185,46 +145,43 @@ void capture_gb_video(void) {
  * Live line-by-line capture synchronized to GB HSYNC
  */
 void output_composite(void) {
-    // Integer microsecond timing for stable NTSC-J/CCIR sync
-    const int LINE_US = 63;
+    // PAL/CCIR timing (European standard) - optimized for CCIR monitors
+    // NTSC timing commented out for reference:
+    // const int LINE_US = 63;
+    // const int HSYNC_US = 4;
+    // const int BACK_PORCH_US = 5;
+    // const int ACTIVE_VIDEO_US = 54;
+    // const int TOTAL_LINES = 263;
+    // const int VSYNC_LINES = 3;
+    // const int PRE_LINES = 24;
+    // const int IMAGE_LINES = 216;
+    
+    const int LINE_US = 64;  // PAL line time (~64µs)
     const int HSYNC_US = 4;
-    const int BACK_PORCH_US = 5;
-    const int ACTIVE_VIDEO_US = 54;
-    const int TOTAL_LINES = 263;
-    const int VSYNC_LINES = 3;
-    const int PRE_LINES = 24;
-    const int IMAGE_LINES = 216;
+    const int BACK_PORCH_US = 5;  // Back to original
+    const int ACTIVE_VIDEO_US = 55;  // Back to original
+    const int TOTAL_LINES = 312;  // Back to original
+    const int VSYNC_LINES = 3;   // PAL VSYNC
+    const int PRE_LINES = 40;    // Back to original
+    const int IMAGE_LINES = 216; // Keep GB scaled output
     const int POST_LINES = TOTAL_LINES - VSYNC_LINES - PRE_LINES - IMAGE_LINES;
 
     int frame_count = 0;
     bool led_state = false;
 
-    // Boot animation state
+    // Minimal boot sync stabilization - just 1 frame of border
     int boot_frame = 0;
-    int logo_y = -20;  // Start above screen
-    int target_y = (GB_HEIGHT - LOGO_H) / 2;  // Center vertically
     bool boot_done = false;
-    int hold_frames = 0;
-
     uint8_t logo_buf[GB_HEIGHT][GB_WIDTH];
 
     while (true) {
-        // Boot animation: draw logo dropping down
+        // Minimal sync stabilization: 1 frame of border
         if (!boot_done) {
-            draw_logo(logo_buf, logo_y);
-            // Animate logo drop
+            draw_logo(logo_buf, 0);  // Draw border at top
             boot_frame++;
-            if (boot_frame >= 2) {
-                boot_frame = 0;
-                if (logo_y < target_y) {
-                    logo_y += 2;
-                } else {
-                    hold_frames++;
-                    if (hold_frames > 90) {
-                        boot_done = true;
-                        boot_complete = true;
-                    }
-                }
+            if (boot_frame >= 1) {
+                boot_done = true;
+                boot_complete = true;
             }
         }
 
