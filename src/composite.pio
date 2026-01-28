@@ -1,0 +1,65 @@
+;
+; Composite Video Output PIO Program
+; 
+; This PIO program outputs composite video samples to a 6-bit resistor DAC
+; at high speed with precise timing. Each sample is one byte where the lower
+; 6 bits represent the DAC value.
+;
+; The program reads bytes from the TX FIFO and outputs them to 6 consecutive
+; GPIO pins configured as a resistor DAC.
+;
+
+.program composite_out
+
+; Output composite video samples to 6-bit DAC
+; Each iteration takes exactly 4 cycles for predictable timing
+; Autopull is enabled with 8-bit threshold
+
+.wrap_target
+    out pins, 6     ; Output 6 bits to DAC pins (1 cycle)
+    nop             ; Pad to 4 cycles total (3 nops)
+    nop
+    nop
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void composite_out_program_init(PIO pio, uint sm, uint offset, uint pin_base) {
+    // Set up the pins
+    for (int i = 0; i < 6; i++) {
+        pio_gpio_init(pio, pin_base + i);
+    }
+    
+    // Set pin directions (all outputs)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_base, 6, true);
+    
+    // Get default config
+    pio_sm_config c = composite_out_program_get_default_config(offset);
+    
+    // Configure output pins
+    sm_config_set_out_pins(&c, pin_base, 6);
+    
+    // Configure shift register: shift out right (LSB first), autopull at 8 bits
+    sm_config_set_out_shift(&c, true, true, 8);
+    
+    // Set clock divider 
+    // At 270MHz system clock, div=4 gives 67.5MHz, each PIO instruction = 4 cycles
+    // So effective sample rate = 67.5MHz / 4 = 16.875 MHz
+    // This gives us ~1070 samples per 63.5µs NTSC line
+    sm_config_set_clkdiv(&c, 4.0f);
+    
+    // Join FIFOs for more buffering (TX only)
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    
+    // Initialize state machine
+    pio_sm_init(pio, sm, offset, &c);
+    
+    // Start with outputs at sync level (0)
+    pio_sm_set_pins(pio, sm, 0);
+    
+    // Enable state machine
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
