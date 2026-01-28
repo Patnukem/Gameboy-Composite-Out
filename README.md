@@ -11,29 +11,11 @@
 
 ---
 
-Convert your original Game Boy DMG video output to standard NTSC (or CCIR/PAL-compatible) composite video using a Raspberry Pi Pico.
+Convert your original Game Boy DMG video output to standard composite video using a Raspberry Pi Pico.
 
 ## Overview
 
-This project captures the native video signals from a Game Boy DMG and converts them to NTSC (or CCIR/PAL-compatible) composite video for display on any TV or monitor with composite input. The Raspberry Pi Pico's dual-core architecture enables robust, double-buffered, decoupled frame capture and composite output for stable CRT display.
-
-### Why Raspberry Pi Pico (and not Pi Zero)?
-
-**Raspberry Pi Pico** is the ideal choice for this project:
-
-
-      - **Dual-core processor**: Core 0 captures Game Boy video, Core 1 generates composite output **simultaneously**
-      - **Double-buffered decoupling**: Frame capture and output are fully separated for maximum stability
-      - **PWM-based composite output**: Composite video is generated using high-speed PWM, not a resistor DAC
-      - **Bare metal programming**: No OS overhead means **guaranteed real-time performance**
-      - **Low cost**: ~$4 USD (vs $15+ for Pi Zero)
-
-**Why not Raspberry Pi Zero?** Although the Pi Zero has built-in composite output, it's **unsuitable** for this task because:
-- Linux introduces **unpredictable delays** that would cause missed pixels
-- Single core cannot capture and output simultaneously
-- GPIO access through kernel drivers is **too slow** for 4.2 MHz pixel clock
-- Massive overkill - full Linux system for simple video conversion
-- More expensive and higher power consumption
+This project captures the native video signals from a Game Boy DMG and converts them to composite video for display on any TV or monitor with composite input. The Raspberry Pi Pico's dual-core architecture enables robust, double-buffered, decoupled frame capture and composite output for stable CRT display.
 
 The Game Boy's 4.194 MHz pixel clock requires sampling every ~238 nanoseconds. Only bare-metal programming with direct hardware access (like the Pico) can reliably achieve this.
 
