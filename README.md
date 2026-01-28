@@ -56,11 +56,6 @@ The Game Boy outputs video data on two pins (DATA0 and DATA1) that together form
 | Pin Headers | As needed | For connections |
 | Perfboard | 1 | For DAC circuit |
 
-### Optional
-
-- 3D printed enclosure (design files included)
-- Additional RCA jack for audio passthrough
-
 ## Wiring Diagram
 
 ### Game Boy DMG → Raspberry Pi Pico
@@ -81,7 +76,8 @@ GND       ─────────── GND (any ground)
 
 **Note**: These pin assignments match the [andy-west VGA project](https://github.com/andy-west/consolized-game-boy), so you can use the same physical wiring if converting from that setup.
 
-**Note**: Game Boy signals are active high, 5V logic. The Pico's GPIO is 3.3V but 5V tolerant for input.
+
+**Note**: Game Boy signals are active high, 5V logic. The Pico's GPIO is 3.3V but not technically 5V tolerant for input. Most people see normal results connecting 5V signals directly, but if you are concerned about long-term reliability or want extra protection, you can use a voltage divider or an 8-bit level shifter (as used in Andy West's project) to safely reduce the voltage to 3.3V. See his repo for an example: https://github.com/andy-west/consolized-game-boy
 
 ### Game Boy DMG Signal Locations
 
