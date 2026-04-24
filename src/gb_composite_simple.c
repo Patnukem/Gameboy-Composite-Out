@@ -145,25 +145,15 @@ void capture_gb_video(void) {
  * Live line-by-line capture synchronized to GB HSYNC
  */
 void output_composite(void) {
-    // PAL/CCIR timing (European standard) - optimized for CCIR monitors
-    // NTSC timing commented out for reference:
-    // const int LINE_US = 63;
-    // const int HSYNC_US = 4;
-    // const int BACK_PORCH_US = 5;
-    // const int ACTIVE_VIDEO_US = 54;
-    // const int TOTAL_LINES = 263;
-    // const int VSYNC_LINES = 3;
-    // const int PRE_LINES = 24;
-    // const int IMAGE_LINES = 216;
-    
-    const int LINE_US = 64;  // PAL line time (~64µs)
+    // Integer microsecond timing for stable NTSC-J/CCIR sync
+    const int LINE_US = 63;
     const int HSYNC_US = 4;
-    const int BACK_PORCH_US = 5;  // Back to original
-    const int ACTIVE_VIDEO_US = 55;  // Back to original
-    const int TOTAL_LINES = 312;  // Back to original
-    const int VSYNC_LINES = 3;   // PAL VSYNC
-    const int PRE_LINES = 40;    // Back to original
-    const int IMAGE_LINES = 216; // Keep GB scaled output
+    const int BACK_PORCH_US = 5;
+    const int ACTIVE_VIDEO_US = 50;
+    const int TOTAL_LINES = 266;  // 266 x 63µs = 59.67Hz, matches GB ~59.7Hz to stop frame roll
+    const int VSYNC_LINES = 3;
+    const int PRE_LINES = 25;    // Adjusted to use the extra lines as pre-blanking
+    const int IMAGE_LINES = 216;
     const int POST_LINES = TOTAL_LINES - VSYNC_LINES - PRE_LINES - IMAGE_LINES;
 
     int frame_count = 0;
@@ -206,6 +196,9 @@ void output_composite(void) {
             int gb_y = (line * GB_HEIGHT) / IMAGE_LINES;
             if (gb_y >= GB_HEIGHT) gb_y = GB_HEIGHT - 1;
 
+            // Timestamp line start so we can enforce hard LINE_US deadline
+            uint32_t line_start = time_us_32();
+
             set_level(SYNC_LEVEL);
             busy_wait_us_32(HSYNC_US);
             set_level(BLANK_LEVEL);
@@ -226,7 +219,6 @@ void output_composite(void) {
                             "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
                             "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
                             "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
-                            "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
                         );
                     }
                 } else {
@@ -235,8 +227,11 @@ void output_composite(void) {
                 }
             }
 
+            // Enforce exact line duration: pad remaining time to hit LINE_US
             set_level(BLANK_LEVEL);
-            busy_wait_us_32(0);
+            while ((time_us_32() - line_start) < (uint32_t)LINE_US) {
+                tight_loop_contents();
+            }
         }
 
         // Post-image blank lines
